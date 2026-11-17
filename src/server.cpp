@@ -14,47 +14,44 @@ struct Server {
         Server& operator=(const Server&) = delete;
         void accept_client() {
             int client_fd = socket_utils::accept_client(socket_fd);
-            state = ServerState::Listened;
+            change_state(ServerState::Listened);
             fprintf(stderr, "[SERVER] Client connected\n");
             try {
                 string st;
                 for (;;) {
-                    state = ServerState::Waiting;
+                    change_state(ServerState::Waiting);
                     bool received = socket_utils::receive_frame(client_fd, st, protocol::kMaxMessageSize);
                     if (!received) {
                         fprintf(stderr, "[SERVER] Client disconnected\n");
                         break;
                     }
                     fprintf(stderr, "[SERVER] Received: %s\n", st.c_str());
-                    state = ServerState::Processing; 
+                    change_state(ServerState::Processing);
+                    change_state(ServerState::Sending);
                     if (st == protocol::kPing) {
-                        state = ServerState::Sending;
                         socket_utils::send_frame(
                             client_fd, string(protocol::kPong));
                         fprintf(stderr, "[SERVER] Sent: PONG\n");
                     } else if (st == protocol::kHistory) {
-                        state = ServerState::Sending;
                         std::string blob;
                         for (const auto& entry : history) { blob += entry; blob += '\n'; }
                         if (!blob.empty()) blob.pop_back();             
                         socket_utils::send_frame(client_fd, blob);   
                     } else if (st == protocol::kQuit) {
-                        state = ServerState::Sending;
                         socket_utils::send_frame(client_fd, protocol::kBye);
                         fprintf(stderr, "[SERVER] Client disconnected\n");
                         break;
                     } else {
                         history.push_back(st);         
-                        state = ServerState::Sending;
                         socket_utils::send_frame(client_fd, protocol::kOk);
                     }
                 }
             } catch (const exception& error) {
-                state = ServerState::Error;
+                change_state(ServerState::Error);
                 fprintf(stderr, "[SERVER] Client session error: %s\n", error.what());
             }
             socket_utils::close_socket(client_fd);
-            state = ServerState::Listening;
+            change_state(ServerState::Listening);
         }
         void start() {
             create_socket();
@@ -62,7 +59,7 @@ struct Server {
 
             fprintf(stderr, "[SERVER] Server started on %s:%u\n",
                         ip.c_str(), static_cast<unsigned>(port));
-            state = ServerState::Listening;
+            change_state(ServerState::Listening);
             for (;;) {
                 accept_client();
             }
@@ -75,6 +72,11 @@ struct Server {
 
             socket_fd = socket_utils::create_tcp_socket();
             socket_utils::set_reuse_address(socket_fd);
+        }
+        void change_state(ServerState next) {
+            if (!is_valid_transition(state, next))
+                throw logic_error(string("invalid server state transition") + to_string(state) + " -> " + to_string(next));
+            state = next;
         }
         void bind_and_listen() {
             socket_utils::bind_socket(socket_fd, addr);
