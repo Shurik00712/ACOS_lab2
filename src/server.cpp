@@ -20,7 +20,7 @@ struct Server {
                 string st;
                 for (;;) {
                     state = ServerState::Waiting;
-                    bool received = socket_utils::receive_line(client_fd, st, protocol::kMaxMessageSize);
+                    bool received = socket_utils::receive_frame(client_fd, st, protocol::kMaxMessageSize);
                     if (!received) {
                         fprintf(stderr, "[SERVER] Client disconnected\n");
                         break;
@@ -29,24 +29,24 @@ struct Server {
                     state = ServerState::Processing; 
                     if (st == protocol::kPing) {
                         state = ServerState::Sending;
-                        socket_utils::send_all(
-                            client_fd, string(protocol::kPong) + "\n");
+                        socket_utils::send_frame(
+                            client_fd, string(protocol::kPong));
                         fprintf(stderr, "[SERVER] Sent: PONG\n");
                     } else if (st == protocol::kHistory) {
                         state = ServerState::Sending;
-                        socket_utils::send_all(
-                            client_fd,
-                            protocol::kHistoryPrefix + std::to_string(history.size()) + "\n");
-                        for (const auto& entry : history)
-                            socket_utils::send_all(client_fd, entry + "\n");
+                        std::string blob;
+                        for (const auto& entry : history) { blob += entry; blob += '\n'; }
+                        if (!blob.empty()) blob.pop_back();             
+                        socket_utils::send_frame(client_fd, blob);   
                     } else if (st == protocol::kQuit) {
                         state = ServerState::Sending;
-                        socket_utils::send_all(client_fd, protocol::kBye + "\n");
+                        socket_utils::send_frame(client_fd, protocol::kBye);
+                        fprintf(stderr, "[SERVER] Client disconnected\n");
                         break;
                     } else {
                         history.push_back(st);         
                         state = ServerState::Sending;
-                        socket_utils::send_all(client_fd, protocol::kOk + "\n");
+                        socket_utils::send_frame(client_fd, protocol::kOk);
                     }
                 }
             } catch (const exception& error) {
@@ -78,7 +78,7 @@ struct Server {
         }
         void bind_and_listen() {
             socket_utils::bind_socket(socket_fd, addr);
-            socket_utils::listen_socket(socket_fd, 128);
+            socket_utils::listen_socket(socket_fd, protocol::kMaxConnections);
             fprintf(stderr, "[SERVER] Waiting for connection...\n");
         }
         int socket_fd = -1;
