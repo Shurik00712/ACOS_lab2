@@ -27,24 +27,23 @@ struct Server {
                     }
                     fprintf(stderr, "[SERVER] Received: %s\n", st.c_str());
                     change_state(ServerState::Processing);
-                    change_state(ServerState::Sending);
+                    string response;
                     if (st == protocol::kPing) {
-                        socket_utils::send_frame(
-                            client_fd, string(protocol::kPong));
+                        response = protocol::kPong;
                         fprintf(stderr, "[SERVER] Sent: PONG\n");
                     } else if (st == protocol::kHistory) {
-                        std::string blob;
-                        for (const auto& entry : history) { blob += entry; blob += '\n'; }
-                        if (!blob.empty()) blob.pop_back();             
-                        socket_utils::send_frame(client_fd, blob);   
+                        for (const auto& entry : history) { response += entry; response += '\n'; }
+                        if (!response.empty()) response.pop_back();             
                     } else if (st == protocol::kQuit) {
-                        socket_utils::send_frame(client_fd, protocol::kBye);
+                        response = protocol::kBye;
                         fprintf(stderr, "[SERVER] Client disconnected\n");
-                        break;
                     } else {
                         history.push_back(st);         
-                        socket_utils::send_frame(client_fd, protocol::kOk);
+                        response = protocol::kOk;
                     }
+                    change_state(ServerState::Sending);
+                    socket_utils::send_frame(client_fd, response);
+                    if (st == protocol::kQuit) break;
                 }
             } catch (const exception& error) {
                 change_state(ServerState::Error);
@@ -75,7 +74,7 @@ struct Server {
         }
         void change_state(ServerState next) {
             if (!is_valid_transition(state, next))
-                throw logic_error(string("invalid server state transition") + to_string(state) + " -> " + to_string(next));
+                throw logic_error(string("invalid server state transition ") + to_string(state) + " -> " + to_string(next));
             state = next;
         }
         void bind_and_listen() {
